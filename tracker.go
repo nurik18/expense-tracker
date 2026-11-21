@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -50,23 +51,49 @@ type Store struct {
 	Items    []Expense
 }
 
-func NewStore(path string) *Store {
+func NewStore(path string) (*Store, error) {
 	s := &Store{FilePath: path}
 	data, err := os.ReadFile(path)
-	if err == nil {
-		_ = json.Unmarshal(data, &s.Items)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return s, nil
+		}
+		return nil, fmt.Errorf("read store file: %w", err)
 	}
-	return s
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return s, nil
+	}
+	if err := json.Unmarshal(data, &s.Items); err != nil {
+		return nil, fmt.Errorf("parse store json: %w", err)
+	}
+	return s, nil
 }
 
-func (s *Store) Add(title, category string, amount float64) {
+func (s *Store) Add(title, category string, amount float64) error {
+	if strings.TrimSpace(title) == "" {
+		return errors.New("title cannot be empty")
+	}
+	if strings.TrimSpace(category) == "" {
+		return errors.New("category cannot be empty")
+	}
+	if amount <= 0 {
+		return errors.New("amount must be greater than zero")
+	}
+
 	s.Items = append(s.Items, Expense{
-		Title:    title,
-		Category: category,
+		Title:    strings.TrimSpace(title),
+		Category: strings.TrimSpace(category),
 		Amount:   amount,
 	})
-	data, _ := json.MarshalIndent(s.Items, "", "  ")
-	_ = os.WriteFile(s.FilePath, data, 0644)
+
+	data, err := json.MarshalIndent(s.Items, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal expenses: %w", err)
+	}
+	if err := os.WriteFile(s.FilePath, data, 0644); err != nil {
+		return fmt.Errorf("write store file: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) Total() float64 {
